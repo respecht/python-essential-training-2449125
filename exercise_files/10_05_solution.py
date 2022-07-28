@@ -56,7 +56,6 @@ class Canvas:
         }
 
     def fromDict(data):
-        print('CANVAS FROM DICT')
         canvas = globals()[data.get('classname')](data.get('x'), data.get('y'), scribes=[globals()[scribe.get('classname')].fromDict(scribe) for scribe in data.get('scribes')])
         canvas._canvas = data.get('canvas')
         return canvas
@@ -164,7 +163,6 @@ class TerminalScribe:
 
 
     def fromDict(data):
-        print('TERMINAL SCRIBE FROM DICT')
         scribe = globals()[data.get('classname')](
             color=data.get('color'),
             mark=data.get('mark'),
