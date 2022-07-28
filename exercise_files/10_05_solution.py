@@ -4,7 +4,7 @@ from termcolor import colored, COLORS
 import math 
 import random
 from threading import Thread
-from inspect import getmembers, ismethod
+from inspect import getmembers, ismethod, getsource
 import json 
 
 class TerminalScribeException(Exception):
@@ -20,6 +20,16 @@ def is_number(val):
         return True
     except ValueError:
         return False
+
+class PlottableFunction:
+    def __init__(self, func):
+        self.func = func
+
+class FunctionEncoder(json.JSONEncoder):
+    def default(self, o):
+        if type(o) == PlottableFunction:
+            return {'function_contents': getsource(o.func), 'function_name': o.func.__name__}
+        return super().default(o)
 
 class Canvas:
     def __init__(self, width, height, scribes=[], framerate=.05):
@@ -52,7 +62,7 @@ class Canvas:
 
     def toFile(self, name):
         with open(name+'.json', 'w') as f:
-            f.write(json.dumps(self.toDict()))
+            f.write(json.dumps(self.toDict(), cls=FunctionEncoder))
 
     def fromFile(name):
         with open(name+'.json', 'r') as f:
@@ -89,6 +99,7 @@ class Canvas:
                 threads = []
                 if len(scribe.moves) > i:
                     args = scribe.moves[i][1]+[self]
+                    print(f'target: {scribe.moves[i][0]} args: {args}')
                     threads.append(Thread(target=scribe.moves[i][0], args=args))
                 [thread.start() for thread in threads]
                 [thread.join() for thread in threads]
@@ -150,6 +161,7 @@ class TerminalScribe:
             'moves': [[move[0].__name__, move[1]] for move in self.moves]
         }
 
+
     def fromDict(data):
         scribe = globals()[data.get('classname')](
             color=data.get('color'),
@@ -157,10 +169,10 @@ class TerminalScribe:
             trail=data.get('trail'),
             pos=data.get('pos'),
             )
-        scribe.moves = scribe._movesFromDict(data.get('moves'))
+        scribe.moves = scribe.movesFromDict(data.get('moves'))
         return scribe
 
-    def _movesFromDict(self, movesData):
+    def movesFromDict(self, movesData):
         bound_methods = {key: val for key, val in getmembers(self, predicate=ismethod)}
         return [[bound_methods[name], args] for name, args in movesData]
 
@@ -206,6 +218,7 @@ class TerminalScribe:
         self.pos = pos
         canvas.setPos(self.pos, colored(self.mark, self.color))
 
+
 class PlotScribe(TerminalScribe):
 
     def __init__(self, domain, **kwargs):
@@ -228,7 +241,20 @@ class PlotScribe(TerminalScribe):
             domain=data.get('domain'),
         )
         scribe.x = data.get('x')
+        scribe.moves = scribe.movesFromDict(data.get('moves'))
         return scribe
+
+    def movesFromDict(self, movesData):
+        for i, (name, args) in enumerate(movesData):
+            if name == '_plotX':
+                # Execute the function contents so that the function is defined
+                # when we need to execute it
+                exec(args[0]['function_contents'])
+
+                movesData[i][1] = [globals()[args[0]['function_name']]]
+
+        bound_methods = {key: val for key, val in getmembers(self, predicate=ismethod)}
+        return [[bound_methods[name], args] for name, args in movesData]
 
     def _plotX(self, function, canvas):
         pos = [self.x, function(self.x)]
@@ -239,7 +265,8 @@ class PlotScribe(TerminalScribe):
     def plotX(self, function):
         self.x = self.domain[0]
         for x in range(self.domain[0], self.domain[1]):
-            self.moves.append((self._plotX, [function]))
+            self.moves.append((self._plotX, [PlottableFunction(function)]))
+
 
 class RobotScribe(TerminalScribe):
     def up(self, distance=1):
@@ -308,14 +335,16 @@ def circleBottom(x):
     if x > center - radius and x < center + radius:
         return center+math.sqrt(radius**2 - (x-center)**2)
 
-scribe = TerminalScribe(color='green')
-scribe.forward(10)
-robotScribe = RobotScribe(color='yellow')
-robotScribe.drawSquare(20)
-
-canvas = CanvasAxis(30, 30, scribes=[scribe, robotScribe])
-
+#scribe = TerminalScribe(color='green')
+#scribe.forward(10)
+#robotScribe = RobotScribe(color='yellow')
+#robotScribe.drawSquare(20)
+scribe = PlotScribe(color='green', domain = [0, 30])
+scribe.plotX(sine)
+canvas = CanvasAxis(30, 30, scribes=[scribe])
 canvas.toFile('solution_file')
+
 
 newCanvas = Canvas.fromFile('solution_file')
 newCanvas.go()
+
